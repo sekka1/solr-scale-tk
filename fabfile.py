@@ -556,6 +556,46 @@ def _lookup_hosts(cluster, verify_ssh=False):
 
     return hosts
 
+def _lookup_hosts_port(cluster, verify_ssh=False):
+
+    host_port = 8764
+    # first, check our local cache for cluster host_port
+    sstkCfg = _get_config()
+    if sstkCfg.has_key('clusters') and sstkCfg['clusters'].has_key(cluster):
+        if sstkCfg['clusters'][cluster].has_key('host_port'):
+            host_port = sstkCfg['clusters'][cluster]['host_port']
+
+    # if host_port is None:
+    #     # host_port not found in the local config
+    #     cloud = _provider_api(cluster)
+    #     hosts = _cluster_hosts(cloud, cluster)
+    #     cloud.close()
+    #
+    #     # cache the hosts in the local config
+    #     if sstkCfg.has_key('clusters') is False:
+    #         sstkCfg['clusters'] = {}
+    #
+    #     if sstkCfg['clusters'].has_key(cluster) is False:
+    #         sstkCfg['clusters'][cluster] = {}
+    #
+    #     sstkCfg['clusters'][cluster]['hosts'] = hosts
+    #
+    #     _save_config()
+    # else:
+    #     # setup the Fabric env for SSH'ing to this cluster
+    #     ssh_user = _env(cluster, 'ssh_user')
+    #     ssh_keyfile = _env(cluster, 'ssh_keyfile_path_on_local')
+    #     if len(ssh_keyfile) > 0 and os.path.isfile(os.path.expanduser(ssh_keyfile)) is False:
+    #         _fatal('SSH key file %s not found!' % ssh_keyfile)
+    #     env.hosts = []
+    #     env.user = ssh_user
+    #     env.key_filename = ssh_keyfile
+    #
+    # if verify_ssh:
+    #     _verify_ssh_connectivity(hosts)
+
+    return host_port
+
 def _zk_ensemble(cluster, hosts):
     n = len(hosts)
     zoo_cfg = _gen_zoo_cfg(_env(cluster,'zk_data_dir'), hosts)
@@ -818,8 +858,9 @@ def _read_cloud_env(cluster):
     return _parse_env_data(envData)
 
 def _num_solr_nodes_per_host(cluster):
-    cloudEnv = _read_cloud_env(cluster)
-    return 1 if cloudEnv.has_key('NODES_PER_HOST') is False else int(cloudEnv['NODES_PER_HOST'])
+    # cloudEnv = _read_cloud_env(cluster)
+    # return 1 if cloudEnv.has_key('NODES_PER_HOST') is False else int(cloudEnv['NODES_PER_HOST'])
+    return 1
 
 def _rolling_restart_solr(cloud, cluster, solrHostsAndPortsToRestart=None, wait=0, overseer=None, pauseBeforeRestart=0, yjp_path=None):
 
@@ -2733,10 +2774,13 @@ def stats(cluster):
 
 ### The following tasks are for working with Lucidworks Fusion services
 
-def _fusion_api(host, apiEndpoint, method='GET', json=None):
+def _fusion_api(host, apiEndpoint, method='GET', json=None, cluster=None):
+
+    host_port = _lookup_hosts_port(cluster)
+
     resp = ""
     if method == 'GET':
-        apiUrl = "http://%s:8765/api/v1/%s" % (host, apiEndpoint)
+        apiUrl = "http://%s:%s/api/v1/%s" % (host, host_port, apiEndpoint)
         try:
             response = urllib2.urlopen(apiUrl)
             resp = response.read()
@@ -2746,7 +2790,7 @@ def _fusion_api(host, apiEndpoint, method='GET', json=None):
             _error('Fusion API request to '+apiUrl+' failed due to: %s' % str(ue))
 
     else:
-        postToApiUrl = ("http://%s:8765/api/v1/%s" % (host, apiEndpoint))
+        postToApiUrl = ("http://%s:%s/api/v1/%s" % (host, host_port, apiEndpoint))
         req = urllib2.Request(postToApiUrl)
         if json is not None:
             req.add_header('Content-Type', 'application/json')
@@ -2782,8 +2826,9 @@ def fusion_new_collection(cluster, name, rf=1, shards=1, conf='cloud'):
     replicas = int(rf) * int(shards)
     maxShardsPerNode = int(max(1, round(replicas / nodes)))
     json = '{ "id":"'+name+'", "solrParams": { "collection.configName":"'+conf+'", "replicationFactor":'+str(rf)+', "numShards":'+str(shards)+', "maxShardsPerNode":'+str(maxShardsPerNode)+' }}'
-    zkHost = _read_cloud_env(cluster)['ZK_HOST'] # get the zkHost from the env on the server
-    _fusion_api(hosts[0], 'collections', 'POST', json)
+    #zkHost = _read_cloud_env(cluster)['ZK_HOST'] # get the zkHost from the env on the server
+    print json
+    _fusion_api(hosts[0], 'collections', 'POST', json, cluster)
 
 def fusion_start(cluster,api=None,ui=1,connectors=1,smasters=1,yjp_path=None,apiJavaMem=None):
     """
@@ -3520,11 +3565,8 @@ def fusion_perf_test(cluster, n=3, keepRunning=False, instance_type='r3.2xlarge'
     # deploy_config(cluster,'perf','perf_js')
     # _status('Starting Fusion services across cluster ...')
     # fusion_start(cluster,api=n,connectors=1,ui=n,yjp_path=yjp_path_fusion,apiJavaMem=apiJavaMem)
-    #hosts = _lookup_hosts(cluster)
-
-    # hardcoding the hostname of where solr can be reached
-    hosts = ["ui-staging.k8s.lucidworks.io"]
-    host_port = "80" # "8764"
+    hosts = _lookup_hosts(cluster)
+    host_port = _lookup_hosts_port(cluster)
 
     # make sure the proxy / UI service is up before making changes with the API
     #_wait_to_see_fusion_proxy_up(cluster, hosts[0], 60)
@@ -3538,12 +3580,13 @@ def fusion_perf_test(cluster, n=3, keepRunning=False, instance_type='r3.2xlarge'
 
     print "Connecting to: "+str(postToApiUrl)
 
-    try:
-        urllib2.urlopen(req, fusionPasswd)
-    except urllib2.HTTPError as e:
-        _error('POST to '+postToApiUrl+' failed due to: '+str(e)+'\n'+e.read())
-    except urllib2.URLError as ue:
-        _error('POST to '+postToApiUrl+' failed due to: '+str(ue))
+    # try:
+    #     urllib2.urlopen(req, fusionPasswd)
+    # except urllib2.HTTPError as e:
+    #     _error('POST to '+postToApiUrl+' failed due to: '+str(e)+'\n'+e.read())
+    # except urllib2.URLError as ue:
+    #     _error('POST to '+postToApiUrl+' failed due to: '+str(ue))
+
     collection = 'perf'
 
     repFact = 1
@@ -3565,7 +3608,7 @@ def fusion_perf_test(cluster, n=3, keepRunning=False, instance_type='r3.2xlarge'
     "type" : "solr-index"
   } ]
 }"""
-    _fusion_api(hosts[0], 'index-pipelines', 'POST', perfPipelineDef)
+    _fusion_api(hosts[0], 'index-pipelines', 'POST', perfPipelineDef, cluster)
 
     perfJsPipelineDef = """{
   "id" : "perf_js",
@@ -3586,14 +3629,14 @@ def fusion_perf_test(cluster, n=3, keepRunning=False, instance_type='r3.2xlarge'
     "type" : "solr-index"
   } ]
 }"""
-    _fusion_api(hosts[0], 'index-pipelines', 'POST', perfJsPipelineDef)
+    _fusion_api(hosts[0], 'index-pipelines', 'POST', perfJsPipelineDef, cluster)
 
     # raise the buffer size for high-volume indexing into Solr
     bufferSize = 3000
-    searchCluster = _fusion_api(hosts[0], 'searchCluster/default')
+    searchCluster = _fusion_api(hosts[0], 'searchCluster/default', 'GET', None, cluster)
     sc = json.loads(searchCluster)
     sc['bufferSize'] = str(bufferSize)
-    _fusion_api(hosts[0], 'searchCluster/default', 'PUT', json.dumps(sc))
+    _fusion_api(hosts[0], 'searchCluster/default', 'PUT', json.dumps(sc), cluster)
 
     _info("Fusion configuration complete. Visit our nifty UI at: http://"+hosts[0]+":8764")
 

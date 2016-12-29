@@ -1,0 +1,21 @@
+{
+  "clusters": {
+    "k8s": {
+      "name": "k8s",
+      "hosts": [ "ui-staging.k8s.lucidworks.io" ],
+      "host_port": "80",
+      "provider:": "local",
+      "ssh_user": "YOU",
+      "ssh_keyfile_path_on_local": "",
+      "username": "${ssh_user}",
+      "user_home": "~/dev/lucidworks",
+      "solr_java_home": "/Library/Java/JavaVirtualMachines/jdk1.7.0_67.jdk/Contents/Home",
+      "zk_home": "${user_home}/zookeeper-3.4.6",
+      "zk_data_dir": "${zk_home}/data",
+      "instance_type": "m3.large",
+      "sstk_cloud_dir": "${user_home}/cloud",
+      "solr_tip": "${user_home}/solr-5.5.2",
+      "fusion_home": "${user_home}/fusion"
+    }
+  }
+}
