@@ -34,8 +34,8 @@ INSTANCE_STORES_TAG = 'numInstanceStores'
 AWS_HVM_AMI_ID = 'ami-f11b48e6'
 AWS_AZ = 'us-east-1b'
 AWS_INSTANCE_TYPE = 'r3.large'
-AWS_SECURITY_GROUP = 'solr-scale-tk'
-AWS_KEY_NAME = 'solr-scale-tk'
+AWS_SECURITY_GROUP = 'k8s-dev-SecurityGroupWideOpen-ZX0OIX5F79JT' # 'solr-scale-tk'
+AWS_KEY_NAME = 'lucidworks_automation_1' # 'solr-scale-tk'
 ssh_user = 'ec2-user'
 user_home = '/home/' + ssh_user
 ssh_keyfile_path_on_local = '~/.ssh/solr-scale-tk.pem'
@@ -2102,6 +2102,8 @@ def deploy_config(cluster,localConfigDir,configName):
     config in ZK, you can create collections that reference this config using conf=configName
     """
 
+    _info("Using config file: "+str(localConfigDir+'/solrconfig.xml'))
+
     if os.path.isdir(localConfigDir) is False:
         _fatal('Local config directory %s not found!' % localConfigDir)
 
@@ -3568,6 +3570,9 @@ def fusion_perf_test(cluster, n=3, keepRunning=False, instance_type='r3.2xlarge'
     hosts = _lookup_hosts(cluster)
     host_port = _lookup_hosts_port(cluster)
 
+    # Deploy configs to zk
+    #deploy_config(cluster,'perf','cloud')
+
     # make sure the proxy / UI service is up before making changes with the API
     #_wait_to_see_fusion_proxy_up(cluster, hosts[0], 60)
     #_status('Fusion proxy / UI service is up, commencing with post-startup configuration steps ...')
@@ -3592,8 +3597,10 @@ def fusion_perf_test(cluster, n=3, keepRunning=False, instance_type='r3.2xlarge'
     repFact = 1
     numShards = n * 2
     fusion_new_collection(cluster,name=collection,rf=repFact,shards=numShards,conf='perf')
+    #fusion_new_collection(cluster,name=collection,rf=repFact,shards=numShards)
     _status('Created new collection: '+collection)
     fusion_new_collection(cluster,name=collection+'_js',rf=repFact,shards=numShards,conf='perf_js')
+    #fusion_new_collection(cluster,name=collection+'_js',rf=repFact,shards=numShards)
     _status('Created new collection: '+collection+'_js')
 
     perfPipelineDef = """{
@@ -3769,7 +3776,8 @@ def estimate_indexing_throughput(cluster, collection, usePipeline=False):
 
 def clear_collection(cluster,collection,deleteByQuery='*:*'):
     hosts = _lookup_hosts(cluster)
-    clearUrl = ("http://%s:8984/solr/%s/update?commit=true" % (hosts[0], collection))
+    host_port = _lookup_hosts_port(cluster)
+    clearUrl = ("http://%s:%s/solr/%s/update?commit=true" % (hosts[0], host_port, collection))
     req = urllib2.Request(clearUrl)
     req.add_header('Content-Type', 'application/xml')
     try:

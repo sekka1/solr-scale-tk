@@ -2,7 +2,7 @@
   "clusters": {
     "k8s": {
       "name": "k8s",
-      "hosts": [ "ui-staging.k8s.lucidworks.io" ],
+      "hosts": [ "api-staging.k8s.lucidworks.io" ],
       "host_port": "80",
       "provider:": "local",
       "ssh_user": "YOU",
