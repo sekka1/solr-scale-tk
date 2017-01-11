@@ -3944,7 +3944,7 @@ def clear_collection(cluster,collection,deleteByQuery='*:*'):
     hosts = _lookup_hosts(cluster)
     host_port = _lookup_hosts_port(cluster)
     #clearUrl = ("http://%s:%s/solr/%s/update?commit=true" % (hosts[0], host_port, collection))
-    clearUrl = ("http://solr-staging.k8s.lucidworks.io:%s/solr/%s/update?commit=true" % (hosts[0], host_port, collection))
+    clearUrl = ("http://solr-staging.k8s.lucidworks.io:%s/solr/%s/update?commit=true" % (host_port, collection))
     print("clearUrl: "+clearUrl)
     req = urllib2.Request(clearUrl)
     req.add_header('Content-Type', 'application/xml')
