@@ -1077,12 +1077,22 @@ def _assign_overseer_nodes(hosts, numNodesPerHost, num_overseer_nodes, totalNode
 
 def _estimate_indexing_throughput(cluster, collection, usePipeline=False):
     hosts = _lookup_hosts(cluster)
+    host_port = _lookup_hosts_port(cluster)
     timestampField = 'indexed_at_tdt'
 
+    _info(hosts)
+    _info(host_port)
+    _info(collection)
+
+
     if str(usePipeline) == "True":
-        solr = pysolr.Solr('http://%s:8765/api/v1/query-pipelines/%s-default/collections/%s' % (hosts[0], collection, collection), timeout=10)
+        print 'http://'+hosts[0]+':'+host_port+'/api/v1/query-pipelines/'+collection+'-default/collections/'+collection
+        solr = pysolr.Solr('http://%s:%s/api/v1/query-pipelines/%s-default/collections/%s' % (hosts[0], host_port, collection, collection), timeout=10)
     else:
-        solr = pysolr.Solr('http://%s:8984/solr/%s' % (hosts[0], collection), timeout=10)
+        print 'http://solr-staging.k8s.lucidworks.io:'+host_port+'/solr/'+collection
+        # solr = pysolr.Solr('http://%s:%s/solr/%s' % (hosts[0], host_port, collection), timeout=10)
+        solr = pysolr.Solr('http://solr-staging.k8s.lucidworks.io:%s/solr/%s' % (host_port, collection), timeout=10)
+
 
     results = solr.search(timestampField+':[* TO *]', **{'sort':timestampField+' ASC'})
     if results.hits <= 0:
@@ -3443,6 +3453,7 @@ def emr_fusion_indexing_job(emrCluster, fusionCluster, collection='perf', pig='s
         pigFile = 's3://solr-scale-tk/pig/'+pig
 
     hosts = _lookup_hosts(fusionCluster)
+    host_port = _lookup_hosts_port(fusionCluster)
 
     if pipeline is None:
         pipeline = collection+'-default'
@@ -3454,9 +3465,9 @@ def emr_fusion_indexing_job(emrCluster, fusionCluster, collection='perf', pig='s
         if len(fusionEndpoint) > 0:
             fusionEndpoint += ','
         if secureFusion is True:
-            fusionEndpoint += 'http://'+host+':8764/api/apollo/index-pipelines/'+pipeline+'/collections/'+collection+'/index'
+            fusionEndpoint += 'http://'+host+':'+host_port+'/api/apollo/index-pipelines/'+pipeline+'/collections/'+collection+'/index'
         else:
-            fusionEndpoint += 'http://'+host+':8765/api/v1/index-pipelines/'+pipeline+'/collections/'+collection+'/index'
+            fusionEndpoint += 'http://'+host+':'+host_port+'/api/v1/index-pipelines/'+pipeline+'/collections/'+collection+'/index'
 
         #fusionEndpoint += ',http://'+host+':9765/api/v1/index-pipelines/'+pipeline+'/collections/'+collection+'/index'
 
@@ -3666,6 +3677,161 @@ def fusion_perf_test(cluster, n=3, keepRunning=False, instance_type='r3.2xlarge'
         # terminate the EMR cluster when we're done
         terminate_jobflow(emrCluster, region)
 
+def fusion_perf_test_only(cluster, n=3, keepRunning=False, instance_type='r3.2xlarge', placement_group='benchmarking', region='us-east-1', maxWaitSecs=2700, yjpPath=None, yjpSolr=False, yjpFusion=False, index_solr_too=False, enable_partition=None):
+    """
+    Altered:  This is running the hadoop job only
+
+    Provisions a Fusion cluster (Solr + ZooKeeper + Fusion services) and an Elastic MapReduce cluster to run an indexing performance job.
+
+    Arg Usage:
+        cluster: Name of the Fusion cluster to create
+        n: Number of nodes in the cluster, default is 3
+        keepRunning: Set to True to keep the cluster running after the test completes, default is False (provisioned nodes will be terminated at the end of this test)
+        instance_type: EC2 instance type to provision, only r3.xlarge and r3.2xlarge instances are supported, default is r3.2xlarge
+        placement_group: Placement group for provisioned instances, default is benchmarking (you must create this if it doesn't exist)
+        region: The region where you want to provision instances; default is us-east-1 (Virginia data center)
+        maxWaitSecs: Max number of seconds to wait for the indexing job to complete, default is 2700
+        yjpPath: Path to the YourKit profiler on the remote nodes if you want to enable remote profiling in Solr or Fusion
+        yjpSolr: Enable remote profiling on the Solr nodes
+        yjpFusion: Enable remote profiling on the Fusion API services
+    """
+
+    print "Starting hacked up solr test..."
+
+    # yjp_path_solr = None
+    # yjp_path_fusion = None
+    # if yjpPath is not None:
+    #     if bool(yjpSolr) is True:
+    #         yjp_path_solr = yjpPath
+    #     if bool(yjpFusion) is True:
+    #         yjp_path_fusion= yjpPath
+    #
+    # solrJavaMemOpts = None
+    # apiJavaMem = None
+    # if instance_type == 'r3.xlarge':
+    #     solrJavaMemOpts = '-Xms6g -Xmx6g'
+    #     apiJavaMem = '3g'
+    # elif instance_type == 'r3.2xlarge':
+    #     solrJavaMemOpts = '-Xms8g -Xmx8g'
+    #     apiJavaMem = '4g'
+    #
+    # hvmAmiId = _env(cluster, 'AWS_HVM_AMI_ID')
+    # _info('Starting Fusion cluster using HVM-based AMI: '+hvmAmiId)
+    #
+    # new_solrcloud(cluster,
+    #               n=n,
+    #               zkn=min(3,n),
+    #               ami=hvmAmiId,
+    #               instance_type=instance_type,
+    #               placement_group=placement_group,
+    #               yjp_path=yjp_path_solr,
+    #               auto_confirm=True,
+    #               solrJavaMemOpts=solrJavaMemOpts,
+    #               purpose='Fusion Performance Testing',customTags='{"CostCenter":"eng"}')
+    # _status('SolrCloud cluster provisioned ... deploying the perf config directory to ZK as name: perf')
+    # deploy_config(cluster,'perf','perf')
+    # deploy_config(cluster,'perf','perf_js')
+    # _status('Starting Fusion services across cluster ...')
+    # fusion_start(cluster,api=n,connectors=1,ui=n,yjp_path=yjp_path_fusion,apiJavaMem=apiJavaMem)
+    hosts = _lookup_hosts(cluster)
+    host_port = _lookup_hosts_port(cluster)
+
+    # Deploy configs to zk
+    #deploy_config(cluster,'perf','cloud')
+
+    # make sure the proxy / UI service is up before making changes with the API
+    #_wait_to_see_fusion_proxy_up(cluster, hosts[0], 60)
+    #_status('Fusion proxy / UI service is up, commencing with post-startup configuration steps ...')
+
+    # set the initial password for the new Fusion cluster
+    fusionPasswd = '{"password":"password123"}'
+    postToApiUrl = "http://%s:%s/api" % (hosts[0], host_port)
+    req = urllib2.Request(postToApiUrl)
+    req.add_header('Content-Type', 'application/json')
+
+    print "Connecting to: "+str(postToApiUrl)
+
+    # try:
+    #     urllib2.urlopen(req, fusionPasswd)
+    # except urllib2.HTTPError as e:
+    #     _error('POST to '+postToApiUrl+' failed due to: '+str(e)+'\n'+e.read())
+    # except urllib2.URLError as ue:
+    #     _error('POST to '+postToApiUrl+' failed due to: '+str(ue))
+
+    collection = 'perf'
+
+    repFact = 1
+    numShards = n * 2
+    #fusion_new_collection(cluster,name=collection,rf=repFact,shards=numShards,conf='perf')
+    #fusion_new_collection(cluster,name=collection,rf=repFact,shards=numShards)
+    #_status('Created new collection: '+collection)
+    #fusion_new_collection(cluster,name=collection+'_js',rf=repFact,shards=numShards,conf='perf_js')
+    #fusion_new_collection(cluster,name=collection+'_js',rf=repFact,shards=numShards)
+    #_status('Created new collection: '+collection+'_js')
+
+    perfPipelineDef = """{
+  "id" : "perf",
+  "stages" : [ {
+    "type" : "solr-index",
+    "id" : "perf-to-solr",
+    "enforceSchema" : true,
+    "bufferDocsForSolr" : true,
+    "skip" : false,
+    "label" : "solr-index",
+    "type" : "solr-index"
+  } ]
+}"""
+    #_fusion_api(hosts[0], 'index-pipelines', 'POST', perfPipelineDef, cluster)
+
+    perfJsPipelineDef = """{
+  "id" : "perf_js",
+  "stages" : [ {
+    "type" : "javascript-index",
+    "id" : "perf-js-javascript",
+    "script" : "function doWork(doc) { var id = doc.getId(); var api = doc.getFirstFieldValue('_lw_data_source_s'); if (!api) api = 'perf'; doc.setId(id + '_' + api); doc.addField('foo_s', api); return doc; }",
+    "skip" : false,
+    "label" : "JavaScript",
+    "type" : "javascript-index"
+  }, {
+    "type" : "solr-index",
+    "id" : "perf-js-to-solr",
+    "enforceSchema" : true,
+    "bufferDocsForSolr" : true,
+    "skip" : false,
+    "label" : "solr-index",
+    "type" : "solr-index"
+  } ]
+}"""
+    #_fusion_api(hosts[0], 'index-pipelines', 'POST', perfJsPipelineDef, cluster)
+
+    # raise the buffer size for high-volume indexing into Solr
+    bufferSize = 3000
+    # searchCluster = _fusion_api(hosts[0], 'searchCluster/default', 'GET', None, cluster)
+    # sc = json.loads(searchCluster)
+    # sc['bufferSize'] = str(bufferSize)
+    # _fusion_api(hosts[0], 'searchCluster/default', 'PUT', json.dumps(sc), cluster)
+
+    _info("Fusion configuration complete. Visit our nifty UI at: http://"+hosts[0]+":"+host_port)
+
+    emrCluster = cluster+'EMR'
+    _status('Provisioning Elastic MapReduce (EMR) cluster named: '+emrCluster)
+
+    #Fusion indexing step
+    numHadoopNodes = 6
+    numReducers = numHadoopNodes * 3 # 4 reducer slots per m1.xlarge
+    emr_new_cluster(emrCluster,region=region,num=numHadoopNodes)
+    tag_emr_instances(emrCluster,'Fusion Performance Testing',region,customTags='{"CostCenter":"eng"}')
+
+    # now run the performance test steps in the EMR workflow
+    fusion_perf_test_steps(emrCluster,cluster,collection,numShards,repFact,numReducers,bufferSize,region,maxWaitSecs,index_solr_too,enable_partition)
+
+    if keepRunning:
+        _warn('Keep running flag is true, so the provisioned EC2 nodes and EMR cluster will not be shut down. You are responsible for stopping these services manually using:\n\tfab kill:'+cluster+'\n\tfab terminate_jobflow:'+emrCluster)
+    else:
+        kill(cluster)
+        # terminate the EMR cluster when we're done
+        terminate_jobflow(emrCluster, region)
+
 def fusion_perf_test_steps(emrCluster,cluster,collection='perf',numShards=6,repFact=1,numReducers=18,bufferSize=3000,region='us-east-1',maxWaitSecs=2700,index_solr_too=False,enable_partition=None):
 
     hosts = _lookup_hosts(cluster)
@@ -3777,7 +3943,9 @@ def estimate_indexing_throughput(cluster, collection, usePipeline=False):
 def clear_collection(cluster,collection,deleteByQuery='*:*'):
     hosts = _lookup_hosts(cluster)
     host_port = _lookup_hosts_port(cluster)
-    clearUrl = ("http://%s:%s/solr/%s/update?commit=true" % (hosts[0], host_port, collection))
+    #clearUrl = ("http://%s:%s/solr/%s/update?commit=true" % (hosts[0], host_port, collection))
+    clearUrl = ("http://solr-staging.k8s.lucidworks.io:%s/solr/%s/update?commit=true" % (hosts[0], host_port, collection))
+    print("clearUrl: "+clearUrl)
     req = urllib2.Request(clearUrl)
     req.add_header('Content-Type', 'application/xml')
     try:
@@ -4020,6 +4188,7 @@ def run_jmeter(cluster,fusionCluster,testPlan,collection,fusionPassword=None,mod
     if os.path.isfile(testPlan) is False:
         _fatal('JMeter test plan file '+testPlan+' not found!')
     hosts = _lookup_hosts(cluster)
+    host_port = _lookup_hosts_port(cluster)
 
     if fusionPassword is None:
         fusionPassword = "password123"
@@ -4033,6 +4202,7 @@ def run_jmeter(cluster,fusionCluster,testPlan,collection,fusionPassword=None,mod
     fusionEndpoint = ''
     if cluster != fusionCluster:
         fusionHosts = _lookup_hosts(fusionCluster)
+        host_port = _lookup_hosts_port(fusionCluster)
     else:
         fusionHosts = hosts
 
@@ -4040,9 +4210,9 @@ def run_jmeter(cluster,fusionCluster,testPlan,collection,fusionPassword=None,mod
         if len(fusionEndpoint) > 0:
             fusionEndpoint += ','
         if goThruProxy:
-            fusionEndpoint += 'http://'+fh+':8764/api/apollo/query-pipelines/'+pipeline+'/collections/'+collection
+            fusionEndpoint += 'http://'+fh+':'+host_port+'/api/apollo/query-pipelines/'+pipeline+'/collections/'+collection
         else:
-            fusionEndpoint += 'http://'+fh+':8765/api/v1/query-pipelines/'+pipeline+'/collections/'+collection
+            fusionEndpoint += 'http://'+fh+':'+host_port+'/api/v1/query-pipelines/'+pipeline+'/collections/'+collection
 
     numThreads = int(numThreads)
     numQueriesPerThread = int(numQueriesPerThread)
@@ -4095,14 +4265,15 @@ def print_fusion_endpoints(cluster,collection,pipeline=None,thruProxy=True):
 
     goThruProxy = str(thruProxy) == 'true' or str(thruProxy) == 'True'
     fusionEndpoint = ''
+    host_port = _lookup_hosts_port(cluster)
     fusionHosts = _lookup_hosts(cluster)
     for fh in fusionHosts:
         if len(fusionEndpoint) > 0:
             fusionEndpoint += ','
         if goThruProxy:
-            fusionEndpoint += 'http://'+fh+':8764/api/apollo/index-pipelines/'+pipeline+'/collections/'+collection+'/index'
+            fusionEndpoint += 'http://'+fh+':'+host_port+'/api/apollo/index-pipelines/'+pipeline+'/collections/'+collection+'/index'
         else:
-            fusionEndpoint += 'http://'+fh+':8765/api/v1/index-pipelines/'+pipeline+'/collections/'+collection+'/index'
+            fusionEndpoint += 'http://'+fh+':'+host_port+'/api/v1/index-pipelines/'+pipeline+'/collections/'+collection+'/index'
     print('Endpoints: '+fusionEndpoint)
 
 def set_cluster_buffer_size(cluster,name='default',bufferSize=1000):
