@@ -3892,7 +3892,7 @@ def fusion_perf_test_steps(emrCluster,cluster,collection='perf',numShards=6,repF
             _print_step_metrics(cluster, 'perf_tp', usePipeline=True)
 
     # GC log analysis for fusion api service    _info("Starting gc log analysis")
-    gc_log_analysis_api(cluster)
+    #gc_log_analysis_api(cluster)
 
 def terminate_jobflow(emrCluster, region='us-east-1'):
     """
