@@ -1089,9 +1089,9 @@ def _estimate_indexing_throughput(cluster, collection, usePipeline=False):
         print 'http://'+hosts[0]+':'+host_port+'/api/v1/query-pipelines/'+collection+'-default/collections/'+collection
         solr = pysolr.Solr('http://%s:%s/api/v1/query-pipelines/%s-default/collections/%s' % (hosts[0], host_port, collection, collection), timeout=10)
     else:
-        print 'http://solr-staging.k8s.lucidworks.io:'+host_port+'/solr/'+collection
+        print 'http://solr-fusion2.k8s.lucidworks.io:'+host_port+'/solr/'+collection
         # solr = pysolr.Solr('http://%s:%s/solr/%s' % (hosts[0], host_port, collection), timeout=10)
-        solr = pysolr.Solr('http://solr-staging.k8s.lucidworks.io:%s/solr/%s' % (host_port, collection), timeout=10)
+        solr = pysolr.Solr('http://solr-fusion2.k8s.lucidworks.io:%s/solr/%s' % (host_port, collection), timeout=10)
 
 
     results = solr.search(timestampField+':[* TO *]', **{'sort':timestampField+' ASC'})
@@ -3944,7 +3944,7 @@ def clear_collection(cluster,collection,deleteByQuery='*:*'):
     hosts = _lookup_hosts(cluster)
     host_port = _lookup_hosts_port(cluster)
     #clearUrl = ("http://%s:%s/solr/%s/update?commit=true" % (hosts[0], host_port, collection))
-    clearUrl = ("http://solr-staging.k8s.lucidworks.io:%s/solr/%s/update?commit=true" % (host_port, collection))
+    clearUrl = ("http://solr-fusion2.k8s.lucidworks.io:%s/solr/%s/update?commit=true" % (host_port, collection))
     print("clearUrl: "+clearUrl)
     req = urllib2.Request(clearUrl)
     req.add_header('Content-Type', 'application/xml')
